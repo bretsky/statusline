@@ -9,8 +9,10 @@ import sys, json
 try:
     d = json.load(sys.stdin)
     cw = d.get('context_window', {}) or {}
-    rem = cw.get('remaining_percentage', '')
-    used = cw.get('used_percentage', '')
+    rem = cw.get('remaining_percentage')
+    used = cw.get('used_percentage')
+    rem = 100 if rem is None else rem
+    used = 0 if used is None else used
     model = (d.get('model') or {}).get('display_name', '')
     cwd = d.get('cwd', '')
     def q(v): return str(v).replace(\"'\", \"'\\\\''\")
