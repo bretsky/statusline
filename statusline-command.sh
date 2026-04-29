@@ -4,34 +4,22 @@
 
 input=$(cat)
 
-eval "$(echo "$input" | python -c "
+remaining=$(echo "$input" | jq -r '.context_window.remaining_percentage // empty')
+used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+model=$(echo "$input" | jq -r '.model.display_name // empty')
+cwd=$(echo "$input" | jq -r '.cwd // empty')
+cost_usd=$(printf '%s' "$input" | python3 -c "
 import sys, json
-try:
-    d = json.load(sys.stdin)
-    cw = d.get('context_window', {}) or {}
-    rem = cw.get('remaining_percentage')
-    used = cw.get('used_percentage')
-    rem = 100 if rem is None else rem
-    used = 0 if used is None else used
-    model = (d.get('model') or {}).get('display_name', '')
-    cwd = d.get('cwd', '')
-    def q(v): return str(v).replace(\"'\", \"'\\\\''\")
-    print(\"remaining='\" + q(rem) + \"'\")
-    print(\"used='\" + q(used) + \"'\")
-    print(\"model='\" + q(model) + \"'\")
-    print(\"cwd='\" + q(cwd) + \"'\")
-except Exception:
-    print(\"remaining=''\")
-    print(\"used=''\")
-    print(\"model=''\")
-    print(\"cwd=''\")
-")"
+d = json.load(sys.stdin)
+v = (d.get('cost') or {}).get('total_cost_usd')
+print('\$%.4f' % v if v is not None else '')
+" 2>/dev/null)
 
 # Git info derived from cwd
 git_info=""
 if [ -n "$cwd" ]; then
-  git_branch=$(git -C "$cwd" --no-optional-locks rev-parse --abbrev-ref HEAD 2>/dev/null)
-  git_repo=$(basename "$(git -C "$cwd" --no-optional-locks rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
+  git_branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null)
+  git_repo=$(basename "$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
   if [ -n "$git_branch" ] && [ -n "$git_repo" ]; then
     git_info="${git_repo}:${git_branch}"
   fi
@@ -46,13 +34,18 @@ YELLOW="\033[33m"
 RED="\033[31m"
 BRIGHT_RED="\033[1;31m"
 CYAN="\033[36m"
+MAGENTA="\033[35m"
 
 if [ -z "$remaining" ]; then
+  out=""
   if [ -n "$git_info" ]; then
-    printf "${CYAN}${git_info}${RESET}  ${DIM}${model}${RESET}"
-  else
-    printf "${DIM}${model}${RESET}"
+    out="${CYAN}${git_info}${RESET}  "
   fi
+  out="${out}${DIM}${model}${RESET}"
+  if [ -n "$cost_usd" ]; then
+    out="${out}  ${MAGENTA}${cost_usd}${RESET}"
+  fi
+  printf "%b" "$out"
   exit 0
 fi
 
@@ -72,7 +65,7 @@ else
   FILL="━"
 fi
 
-# Build progress bar (20 chars wide)
+# Build progress bar (15 chars wide)
 bar_width=20
 filled=$(( used_int * bar_width / 100 ))
 empty=$(( bar_width - filled ))
@@ -90,5 +83,8 @@ if [ -n "$git_info" ]; then
 fi
 out="${out}${COLOR}${bar}${RESET} ${COLOR}${remaining_int}% left${RESET}"
 out="${out}  ${DIM}${model}${RESET}"
+if [ -n "$cost_usd" ]; then
+  out="${out}  ${MAGENTA}${cost_usd}${RESET}"
+fi
 
 printf "%b" "$out"
